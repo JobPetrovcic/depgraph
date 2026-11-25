@@ -73,6 +73,7 @@ function createNodes(k, table) {
     }
     for (const key of graphManifest.stats) node[key] = table[key][j]
     if (table.range) node.range = table.range[j] // [line, end_line] in the module's file, or null
+    if (table.file) node.file = table.file[j] // modules: their source file, or null
     if (InitiallyRemoveNodes.includes(node.name)) node.removed = true
     nodes[base + j] = node
   }

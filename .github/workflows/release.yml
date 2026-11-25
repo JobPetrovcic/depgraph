@@ -1,0 +1,33 @@
+# On a tag vX.Y.Z: builds the `depgraph` program for each platform and attaches it to the release
+# (the Lean package downloads it from there).
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, asset: depgraph-x86_64-linux }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, asset: depgraph-aarch64-linux }
+          - { os: macos-latest, target: aarch64-apple-darwin, asset: depgraph-aarch64-macos }
+          - { os: macos-latest, target: x86_64-apple-darwin, asset: depgraph-x86_64-macos }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, asset: depgraph-x86_64-windows.exe }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - shell: bash
+        run: |
+          src=target/${{ matrix.target }}/release/depgraph
+          [ -f "$src.exe" ] && src="$src.exe"
+          cp "$src" ${{ matrix.asset }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}

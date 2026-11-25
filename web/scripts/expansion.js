@@ -15,9 +15,9 @@ function showNode(v) {
 
 // children of u that may be shown; options such as hiding internal declarations go here
 function visibleChildren(u) {
-  // Lean data: library, namespace and module nodes also have module dependency edges (drawn by
-  // the option "Display connections between modules"); they expand only into what they contain
-  if (graphManifest.source && isTreeNode(u)) return neighbours(u).filter(v => nodes[v].parent == u && !nodes[v].removed)
+  // library, namespace and module nodes also have module dependency edges (drawn by the option
+  // "Display connections between modules"); they expand only into what they contain
+  if ((graphManifest.generator == 'depgraph' || graphManifest.source) && isTreeNode(u)) return neighbours(u).filter(v => nodes[v].parent == u && !nodes[v].removed)
   return neighbours(u).filter(v => !nodes[v].removed)
 }
 

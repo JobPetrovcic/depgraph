@@ -1,0 +1,17 @@
+[package]
+name = "depgraph"
+version = "0.2.0"
+edition = "2024"
+description = "Website of the dependency graph of a library (Lean, Agda, ...), from the depgraph format"
+license = "MIT"
+repository = "https://github.com/JobPetrovcic/depgraph"
+exclude = ["lean", "agda"]
+
+[dependencies]
+rayon = "1.12.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1

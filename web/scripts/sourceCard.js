@@ -1,8 +1,8 @@
-// Hover card: a node's name and stats, and for declarations with a source range (Lean data with
-// graphManifest.source) its source text from GitHub: the statement, with the proof collapsed.
+// Hover card: a node's name and stats, and for declarations with a source range in a file on GitHub
+// its source text: the statement, with the proof collapsed.
 // The card stays open while the mouse is over it, so its toggle and links can be used.
 const sourceBase = graphManifest.source || null
-const sourceFiles = new Map() // path of the .lean file -> Promise of its lines
+const sourceFiles = new Map() // URL of a source file -> Promise of its lines
 const cardShowDelay = 350 // ms of hovering a node before its card opens
 const cardHideDelay = 250 // ms after leaving the node / card before the card closes
 
@@ -58,7 +58,7 @@ function openCard(node, anchor) {
   }
   card.style('display', 'block')
   placeCard()
-  if (sourceBase && node.range) showSource(node)
+  if (node.range) showSource(node)
 }
 
 // Beside the hovered node's label, just below its row (so the nodes left and right of it stay
@@ -91,22 +91,30 @@ function rawSourceUrl(blobUrl) {
   return blobUrl.replace(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\//, 'https://raw.githubusercontent.com/$1/$2/')
 }
 
-function fetchSourceLines(path) {
-  let lines = sourceFiles.get(path)
+function fetchSourceLines(url) {
+  let lines = sourceFiles.get(url)
   if (lines === undefined) {
-    lines = fetch(rawSourceUrl(sourceBase) + path)
+    lines = fetch(rawSourceUrl(url))
       .then(response => {
         if (!response.ok) throw new Error(response.status)
         return response.text()
       })
       .then(text => text.split('\n'))
-    lines.catch(() => sourceFiles.delete(path)) // try again on a later hover
-    sourceFiles.set(path, lines)
+    lines.catch(() => sourceFiles.delete(url)) // try again on a later hover
+    sourceFiles.set(url, lines)
   }
   return lines
 }
 
-// Module/Path.lean: the names of the declaration's ancestors below the library root
+// GitHub URL of the file of a declaration's module, or null: the module's file (relative to
+// graphManifest.source, or a full URL); in sites without files, Module/Path.lean below the source
+async function sourceUrl(node) {
+  await ensureNodes([node.parent])
+  const file = nodes[node.parent].file
+  if (file !== undefined) return !file ? null : /^https?:/.test(file) ? file : sourceBase && sourceBase + file
+  return sourceBase && sourceBase + await sourcePath(node)
+}
+
 async function sourcePath(node) {
   const parts = []
   for (let u = node.parent; u >= 0; u = nodes[u].parent) {
@@ -119,19 +127,19 @@ async function sourcePath(node) {
 
 async function showSource(node) {
   const [first, last] = node.range
+  const url = await sourceUrl(node)
+  if (!url || cardNode !== node) return
   const section = card.append('div').attr('class', 'card-source')
   const loading = section.append('div').attr('class', 'card-muted').text('Loading source…')
-  let path, text
+  let text
   try {
-    path = await sourcePath(node)
-    if (cardNode !== node) return
     section.append('a')
       .attr('class', 'card-link')
-      .attr('href', `${sourceBase}${path}#L${first}-L${last}`)
+      .attr('href', `${url}#L${first}-L${last}`)
       .attr('target', '_blank')
       .attr('rel', 'noopener')
       .text('View on GitHub')
-    const lines = await fetchSourceLines(path)
+    const lines = await fetchSourceLines(url)
     text = lines.slice(first - 1, last).join('\n')
   } catch (error) {
     loading.remove() // quietly: the GitHub link (if any) stays
@@ -139,7 +147,8 @@ async function showSource(node) {
   }
   if (cardNode !== node) return
   loading.remove()
-  const cut = node.label == ':data' ? -1 : splitStatementProof(text)
+  const cut = node.label == ':data' || node.label == ':record' ? -1
+    : /\.l?agda(\.\w+)?$/.test(url) ? splitAgdaDefinition(text) : splitStatementProof(text)
   section.insert('pre', 'a').attr('class', 'card-code').text(cut < 0 ? text : text.slice(0, cut).trimEnd())
   if (cut >= 0) {
     const proof = text.slice(cut)
@@ -202,6 +211,21 @@ function splitStatementProof(text) {
       if (c == '|' && /\s/.test(text[i + 1] || '') && text.slice(lineStart, i).trim() == '') return lineStart
     }
     i++
+  }
+  return -1
+}
+
+// Agda: index where the definition starts, or -1: the first line after the type signature that is
+// indented no deeper than its first line (a clause, e.g. "f x = ...").
+function splitAgdaDefinition(text) {
+  const lines = text.split('\n')
+  const indent = line => line.length - line.trimStart().length
+  const first = indent(lines[0])
+  let at = lines[0].length + 1
+  for (let k = 1; k < lines.length; k++) {
+    const line = lines[k]
+    if (line.trim() != '' && !line.trimStart().startsWith('--') && indent(line) <= first) return at
+    at += line.length + 1
   }
   return -1
 }

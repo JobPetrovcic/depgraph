@@ -1,7 +1,8 @@
 import Lean
-import DepGraph.Graph
-import DepGraph.Site
+import DepGraph.Extract
 open Lean System DepGraph
+
+def version : String := "0.2.0"
 
 def usage : String := "usage: lake exe depgraph [options] [MODULE...]
 
@@ -14,7 +15,8 @@ modules MODULE and MODULE.* (e.g. Mathlib). Build the modules first (`lake build
   --name NAME      name of the library (default: the first MODULE or the directory)
   --source URL     source of the modules on GitHub, e.g.
                    https://github.com/OWNER/REPO/blob/COMMIT/src/ (default: found with git)
-  --no-source      do not link the source"
+  --no-source      do not link the source
+  --export FILE    only write the declarations to FILE, in the depgraph format (FORMAT.md)"
 
 structure Config where
   modules : Array Name := #[]
@@ -23,6 +25,7 @@ structure Config where
   name : Option String := none
   source : Option String := none
   noSource : Bool := false
+  exportFile : Option FilePath := none
 
 def parseArgs : List String → Config → Except String Config
   | [], c => .ok c
@@ -33,6 +36,7 @@ def parseArgs : List String → Config → Except String Config
   | "--name" :: s :: rest, c => parseArgs rest { c with name := s }
   | "--source" :: s :: rest, c => parseArgs rest { c with source := s }
   | "--no-source" :: rest, c => parseArgs rest { c with noSource := true }
+  | "--export" :: f :: rest, c => parseArgs rest { c with exportFile := some f }
   | a :: rest, c =>
     if a.startsWith "-" then .error s!"unknown option {a}"
     else parseArgs rest { c with modules := c.modules.push a.toName }
@@ -89,31 +93,42 @@ unsafe def executableRoots (mods : Array Name) : IO (Array Name) := do
     region.free
   return withMain.filter (!imported.contains ·)
 
-def git (dir : FilePath) (args : Array String) : IO (Option String) := do
-  let o ← IO.Process.output { cmd := "git", args := #["-C", dir.toString] ++ args }
-  return if o.exitCode == 0 then some o.stdout.trimAscii.toString else none
+/-- The source file of module `m`, found in `LEAN_SRC_PATH` (set by `lake`) or here. -/
+def sourceFile (srcPath : List FilePath) (m : Name) : IO (Option FilePath) := do
+  for d in srcPath ++ [("." : FilePath)] do
+    let f := modToFilePath d m "lean"
+    if ← f.pathExists then return some (← IO.FS.realPath f)
+  return none
 
-/-- `https://github.com/OWNER/REPO/blob/COMMIT/<dir>/`, where `<dir>` is the source directory of
-module `m` (from `LEAN_SRC_PATH`, set by `lake`), if it is in a git checkout from GitHub. -/
-def githubSource (m : Name) : IO (Option String) := do
-  let srcPath : List FilePath := match ← IO.getEnv "LEAN_SRC_PATH" with
-    | some s => SearchPath.parse s
-    | none => []
-  let some dir ← (srcPath ++ [("." : FilePath)]).findM? fun d => (modToFilePath d m "lean").pathExists
-    | return none
-  let some top ← git dir #["rev-parse", "--show-toplevel"] | return none
-  let some commit ← git dir #["rev-parse", "HEAD"] | return none
-  let some url ← git dir #["remote", "get-url", "origin"] | return none
-  let url := if url.endsWith ".git" then (url.dropEnd 4).toString else url
-  let some repo := ["https://github.com/", "git@github.com:"].findSome? fun p =>
-      if url.startsWith p then some (url.drop p.length).toString else none
-    | IO.eprintln s!"note: {url} is not on GitHub, so the page shows no source"; return none
-  let rel := ((← IO.FS.realPath dir).toString.drop (← IO.FS.realPath top).toString.length).toString
-  let rel := (rel.dropWhile (· == '/')).toString
-  if let some changes ← git dir #["status", "--porcelain", "--", "."] then
-    unless changes.isEmpty do
-      IO.eprintln s!"note: the page shows the source of commit {(commit.take 12).toString}, without your uncommitted changes"
-  return some s!"https://github.com/{repo}/blob/{commit}/{if rel.isEmpty then "" else rel ++ "/"}"
+/-- The program that writes the website (`depgraph`, in Rust): `DEPGRAPH_BIN`, or this
+version's release from GitHub, downloaded once into the user's cache directory. -/
+def siteTool : IO FilePath := do
+  if let some p ← IO.getEnv "DEPGRAPH_BIN" then return p
+  let t := System.Platform.target
+  let arch := if t.startsWith "x86_64" then "x86_64"
+    else if t.startsWith "aarch64" || t.startsWith "arm64" then "aarch64" else t
+  let os := if System.Platform.isWindows then "windows" else if System.Platform.isOSX then "macos" else "linux"
+  let exe := if System.Platform.isWindows then ".exe" else ""
+  let cache ← match ← IO.getEnv "XDG_CACHE_HOME", ← IO.getEnv "LOCALAPPDATA", ← IO.getEnv "HOME" with
+    | some d, _, _ | none, some d, _ => pure (FilePath.mk d)
+    | none, none, some h => pure (FilePath.mk h / ".cache")
+    | none, none, none => pure (FilePath.mk ".lake")
+  let dir := cache / "depgraph" / version
+  let bin := dir / s!"depgraph{exe}"
+  if ← bin.pathExists then return bin
+  let url := s!"https://github.com/JobPetrovcic/depgraph/releases/download/v{version}/depgraph-{arch}-{os}{exe}"
+  IO.println s!"downloading {url}"
+  IO.FS.createDirAll dir
+  let part := bin.addExtension "part"
+  let o ← IO.Process.output { cmd := "curl", args := #["-fsSL", "-o", part.toString, url] }
+  unless o.exitCode == 0 do
+    throw <| IO.userError s!"could not download {url} ({o.stderr.trimAscii}). Build it with \
+      `cargo install --git https://github.com/JobPetrovcic/depgraph --tag v{version}` and set \
+      DEPGRAPH_BIN to its path."
+  let rwx : IO.AccessRight := { read := true, write := true, execution := true }
+  IO.setAccessRights part { user := rwx, group := { rwx with write := false }, other := { rwx with write := false } }
+  IO.FS.rename part bin
+  return bin
 
 unsafe def main (args : List String) : IO UInt32 := do
   if args.contains "-h" || args.contains "--help" then
@@ -133,14 +148,13 @@ unsafe def main (args : List String) : IO UInt32 := do
   let cwd ← IO.currentDir
   let name := c.name.getD <| match c.modules[0]? with
     | some m => m.toString
-    | none => (cwd.fileName.getD "library")
-  let source ← if c.noSource then pure none else match c.source with
-    | some s => pure (some s)
-    | none => githubSource modules[0]!
+    | none => cwd.fileName.getD "library"
   let roots ← executableRoots modules
   unless roots.isEmpty do
     IO.println s!"not shown, as they are the roots of executables: {", ".intercalate (roots.map toString).toList}"
   let modules := modules.filter (!roots.contains ·)
+  -- the site tool first: if it cannot be found, fail before the long part
+  let tool ← if c.exportFile.isSome then pure none else some <$> siteTool
   log s!"importing {modules.size} modules"
   -- Two modules that declare the same name cannot be imported together; that happens with
   -- build scripts (e.g. two executables' `main`). Skip the module Lean reports and retry.
@@ -157,10 +171,29 @@ unsafe def main (args : List String) : IO UInt32 := do
       IO.eprintln s!"note: skipping {clash}, it declares a name another module also declares ({msg})"
       modules := modules.erase clash
   let some env := env? | unreachable!
-  let g ← build env modules name jobs log
-  log s!"writing the website to {c.out}"
-  writeSite g c.out source
-  log s!"done: {g.names.size} nodes, {g.out.foldl (· + ·.size) 0} edges"
-  IO.println s!"\nTo view it: python3 -m http.server -d {c.out}  and open http://localhost:8000"
-  if source.isNone then IO.println "(no source links: not a GitHub checkout; see --source)"
-  return 0
+  -- source files: local paths (the site tool finds their GitHub repository), or relative to --source
+  let srcPath : List FilePath := match ← IO.getEnv "LEAN_SRC_PATH" with
+    | some s => SearchPath.parse s
+    | none => []
+  let withFiles ← modules.mapM fun m => do
+    if c.noSource then return (m, none)
+    if c.source.isSome then return (m, some (modToFilePath "" m "lean"))
+    return (m, ← sourceFile srcPath m)
+  log s!"writing the declarations"
+  match c.exportFile, tool with
+  | some f, _ =>
+    let h ← IO.FS.Handle.mk f .write
+    writeDecls env withFiles name jobs (.ofHandle h)
+    log s!"wrote {f}"
+    return 0
+  | none, some tool =>
+    let toolArgs := #["-o", c.out.toString, "-j", toString jobs] ++
+      (if c.noSource then #["--no-source"] else #[]) ++ (match c.source with | some s => #["--source", s] | none => #[])
+    let child ← IO.Process.spawn { cmd := tool.toString, args := toolArgs, stdin := .piped }
+    let (stdin, child) ← child.takeStdin
+    writeDecls env withFiles name jobs (.ofHandle stdin)
+    let code ← child.wait
+    unless code == 0 do return code
+    IO.println s!"\nTo view it: python3 -m http.server -d {c.out}  and open http://localhost:8000"
+    return 0
+  | none, none => unreachable!
