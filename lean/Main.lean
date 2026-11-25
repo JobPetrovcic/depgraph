@@ -2,7 +2,7 @@ import Lean
 import DepGraph.Extract
 open Lean System DepGraph
 
-def version : String := "0.2.0"
+def version : String := "0.2.1"
 
 def usage : String := "usage: lake exe depgraph [options] [MODULE...]
 
@@ -139,7 +139,9 @@ unsafe def main (args : List String) : IO UInt32 := do
     | .error e => IO.eprintln s!"depgraph: {e}\n\n{usage}"; return 1
   let jobs := if c.jobs > 0 then c.jobs else max 1 (System.Platform.Internal.getHardwareConcurrency ()).toNat
   let t0 ← IO.monoMsNow
-  let log (s : String) : IO Unit := do IO.println s!"[{((← IO.monoMsNow) - t0) / 1000}s] {s}"
+  let log (s : String) : IO Unit := do
+    IO.println s!"[{((← IO.monoMsNow) - t0) / 1000}s] {s}"
+    (← IO.getStdout).flush
   initSearchPath (← findSysroot)
   let modules ← findModules c.modules
   if modules.isEmpty then

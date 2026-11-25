@@ -147,13 +147,15 @@ async function showSource(node) {
   }
   if (cardNode !== node) return
   loading.remove()
+  const agda = /\.l?agda(\.\w+)?$/.test(url)
+  const what = agda ? 'definition' : 'proof'
   const cut = node.label == ':data' || node.label == ':record' ? -1
-    : /\.l?agda(\.\w+)?$/.test(url) ? splitAgdaDefinition(text) : splitStatementProof(text)
+    : agda ? splitAgdaDefinition(text) : splitStatementProof(text)
   section.insert('pre', 'a').attr('class', 'card-code').text(cut < 0 ? text : text.slice(0, cut).trimEnd())
   if (cut >= 0) {
     const proof = text.slice(cut)
     const n = proof.split('\n').length
-    const label = `Show proof (${n} line${n == 1 ? '' : 's'})`
+    const label = `Show ${what} (${n} line${n == 1 ? '' : 's'})`
     const proofPre = section.insert('pre', 'a').attr('class', 'card-code card-proof').style('display', 'none').text(proof)
     section.insert('button', 'pre.card-proof')
       .attr('class', 'card-toggle')
@@ -161,7 +163,7 @@ async function showSource(node) {
       .on('click', function () {
         const open = proofPre.style('display') == 'none'
         proofPre.style('display', open ? 'block' : 'none')
-        d3.select(this).text(open ? 'Hide proof' : label)
+        d3.select(this).text(open ? `Hide ${what}` : label)
         placeCard()
       })
   }

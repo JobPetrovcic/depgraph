@@ -1,6 +1,6 @@
 [package]
 name = "depgraph"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Website of the dependency graph of a library (Lean, Agda, ...), from the depgraph format"
 license = "MIT"
