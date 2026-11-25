@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: leanprover/lean-action@v1   # installs Lean, builds the project
+      - uses: leanprover/lean-action@v1   # installs Lean, gets cached builds (`lake exe cache get`) if the project uses Mathlib, builds the rest
       - run: lake exe depgraph -o _site
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -73,6 +73,9 @@ jobs:
     steps:
       - uses: actions/deploy-pages@v4
 ```
+
+A free GitHub runner has about 14 GB of disk, enough for projects of Mathlib's size; a project
+whose compiled files are larger needs a bigger runner or to run the tool locally.
 
 ## Scale
 
