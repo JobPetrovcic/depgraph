@@ -1,6 +1,6 @@
 # The depgraph format
 
-What an extractor (for Lean, Agda, ...) writes and `depgraph` reads: JSON Lines (UTF-8), one
+What an extractor (for Lean, Agda, Rocq, ...) writes and `depgraph` reads: JSON Lines (UTF-8), one
 object per line, of three kinds.
 
 ```json

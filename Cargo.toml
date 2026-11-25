@@ -1,11 +1,11 @@
 [package]
 name = "depgraph"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
-description = "Website of the dependency graph of a library (Lean, Agda, ...), from the depgraph format"
+description = "Website of the dependency graph of a library (Lean, Agda, Rocq, ...), from the depgraph format"
 license = "MIT"
 repository = "https://github.com/JobPetrovcic/depgraph"
-exclude = ["lean", "agda"]
+exclude = ["lean", "agda", "rocq"]
 
 [dependencies]
 rayon = "1.12.0"

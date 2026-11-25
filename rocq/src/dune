@@ -1,0 +1,10 @@
+(library
+ (name depgraph_plugin)
+ (public_name rocq-depgraph.plugin)
+ (flags :standard -rectypes -w -3-27)
+ (libraries rocq-runtime.vernac str))
+
+(rule
+ (targets g_depgraph.ml)
+ (deps (:mlg g_depgraph.mlg))
+ (action (run rocq pp-mlg %{mlg})))

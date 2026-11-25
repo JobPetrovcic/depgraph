@@ -2,8 +2,8 @@
 
 Builds an interactive website of the dependency graph of a library of formal mathematics: folders,
 modules and declarations, what uses what, the most used declarations, search, and the source of a
-declaration (statement, proof on request) when you hover over it. For Lean 4 and Agda; Coq is
-planned.
+declaration (statement, proof on request) when you hover over it. For Lean 4, Agda and Rocq
+(Coq).
 
 It has two parts: an extractor for each language, which writes the declarations and what they use
 in a common format ([FORMAT.md](FORMAT.md)), and the program `depgraph` (Rust), which turns that
@@ -47,6 +47,10 @@ downloads the `depgraph` program for your platform. Options:
 ## Agda
 
 See [agda/README.md](agda/README.md).
+
+## Rocq (Coq)
+
+See [rocq/README.md](rocq/README.md).
 
 ## Other languages
 

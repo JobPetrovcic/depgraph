@@ -148,9 +148,11 @@ async function showSource(node) {
   if (cardNode !== node) return
   loading.remove()
   const agda = /\.l?agda(\.\w+)?$/.test(url)
-  const what = agda ? 'definition' : 'proof'
-  const cut = node.label == ':data' || node.label == ':record' ? -1
-    : agda ? splitAgdaDefinition(text) : splitStatementProof(text)
+  const rocq = /\.v$/.test(url)
+  const what = agda || rocq && node.label != ':theorem' ? 'definition' : 'proof'
+  const whole = [':data', ':record', ':inductive', ':constructor', ':class']
+  const cut = whole.includes(node.label) ? -1
+    : agda ? splitAgdaDefinition(text) : rocq ? splitRocqStatement(text) : splitStatementProof(text)
   section.insert('pre', 'a').attr('class', 'card-code').text(cut < 0 ? text : text.slice(0, cut).trimEnd())
   if (cut >= 0) {
     const proof = text.slice(cut)
@@ -211,6 +213,39 @@ function splitStatementProof(text) {
       }
       if (c == ':' && text[i + 1] == '=') return i
       if (c == '|' && /\s/.test(text[i + 1] || '') && text.slice(lineStart, i).trim() == '') return lineStart
+    }
+    i++
+  }
+  return -1
+}
+
+// Rocq: index where the body or proof starts, or -1: the first ":=" at bracket depth 0, or the end
+// of the first sentence (a "." before a blank). Comments "(* *)" and strings are skipped.
+function splitRocqStatement(text) {
+  let depth = 0, i = 0
+  const n = text.length
+  while (i < n) {
+    const c = text[i]
+    if (c == '(' && text[i + 1] == '*') {
+      let nesting = 1
+      i += 2
+      while (i < n && nesting > 0) {
+        if (text[i] == '(' && text[i + 1] == '*') { nesting++; i += 2 }
+        else if (text[i] == '*' && text[i + 1] == ')') { nesting--; i += 2 }
+        else i++
+      }
+      continue
+    } else if (c == '"') {
+      i++
+      while (i < n && text[i] != '"') i++
+    } else if ('([{'.includes(c)) {
+      depth++
+    } else if (')]}'.includes(c)) {
+      depth = Math.max(0, depth - 1)
+    } else if (depth == 0 && c == ':' && text[i + 1] == '=') {
+      return i
+    } else if (c == '.' && /\s/.test(text[i + 1] || ' ') && text[i - 1] != '.') {
+      return text.slice(i + 1).trim() == '' ? -1 : i + 1
     }
     i++
   }

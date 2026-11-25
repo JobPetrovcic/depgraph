@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# rocq-depgraph [-o SITE] [ROCQ FLAGS...]
+# Writes the website of the dependency graph of a compiled Rocq library.
+# The library is given by its -R/-Q flags, read from _CoqProject when none are given.
+set -euo pipefail
+version=0.3.0
+out=depgraph-site
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|--out) out=$2; shift 2 ;;
+    -h|--help) sed -n '2,4s/^# //p' "$0"; exit 0 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+if [ ${#args[@]} -eq 0 ]; then
+  [ -f _CoqProject ] || { echo "rocq-depgraph: no flags given and no _CoqProject" >&2; exit 1; }
+  # the -R/-Q/-I/-arg flags of _CoqProject (file names in it are not needed)
+  read -ra words <<< "$(sed 's/#.*//' _CoqProject | tr '\n' ' ')"
+  i=0
+  while [ $i -lt ${#words[@]} ]; do
+    case "${words[$i]}" in
+      -R|-Q) args+=("${words[$i]}" "${words[$((i+1))]}" "${words[$((i+2))]}"); i=$((i+3)) ;;
+      -I|-arg) args+=("${words[$i]}" "${words[$((i+1))]}"); i=$((i+2)) ;;
+      *) i=$((i+1)) ;;
+    esac
+  done
+fi
+
+# the modules: every .vo under the -R/-Q directories (or their copy in dune's _build)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+libs=()
+{
+  echo 'Declare ML Module "rocq-depgraph.plugin".'
+  i=0
+  while [ $i -lt ${#args[@]} ]; do
+    case "${args[$i]}" in
+      -R|-Q)
+        dir=${args[$((i+1))]} lib=${args[$((i+2))]}
+        libs+=("$lib")
+        if [ -z "$(find "$dir" -name '*.vo' -print -quit 2>/dev/null)" ] && [ -d "_build/default/$dir" ]; then
+          dir=_build/default/$dir; args[$((i+1))]=$dir
+        fi
+        [ -d "$dir" ] && (cd "$dir" && find . -name '*.vo' | sort) | while read -r f; do
+          m=${f#./}; m=${m%.vo}
+          echo "Require $lib.${m//\//.}."
+        done
+        i=$((i+3)) ;;
+      *) i=$((i+1)) ;;
+    esac
+  done
+  printf 'DepGraph "%s"' "$tmp/graph.jsonl"
+  for l in "${libs[@]}"; do printf ' "%s"' "$l"; done
+  echo '.'
+} > "$tmp/DepGraphAll.v"
+[ ${#libs[@]} -gt 0 ] || { echo "rocq-depgraph: no -R or -Q flag" >&2; exit 1; }
+n=$(grep -c '^Require' "$tmp/DepGraphAll.v" || true)
+[ "$n" -gt 0 ] || { echo "rocq-depgraph: no .vo files of ${libs[*]}: build the library first" >&2; exit 1; }
+echo "reading $n modules of ${libs[*]}"
+if command -v rocq >/dev/null; then rocq compile "${args[@]}" -w -all "$tmp/DepGraphAll.v"
+else coqc "${args[@]}" -w -all "$tmp/DepGraphAll.v"; fi
+
+# the site writer: $DEPGRAPH_BIN, depgraph on PATH, or downloaded from the release
+bin=${DEPGRAPH_BIN:-}
+if [ -z "$bin" ] && command -v depgraph >/dev/null; then bin=depgraph; fi
+if [ -z "$bin" ]; then
+  case "$(uname -s)" in Linux) os=linux ;; Darwin) os=macos ;; *) os=windows ;; esac
+  case "$(uname -m)" in arm64|aarch64) arch=aarch64 ;; *) arch=x86_64 ;; esac
+  exe=; [ $os = windows ] && exe=.exe
+  cache=${XDG_CACHE_HOME:-$HOME/.cache}/depgraph/$version
+  bin=$cache/depgraph$exe
+  if [ ! -x "$bin" ]; then
+    url=https://github.com/JobPetrovcic/depgraph/releases/download/v$version/depgraph-$arch-$os$exe
+    echo "downloading $url"
+    mkdir -p "$cache"
+    curl -fsSL -o "$bin.part" "$url" && chmod +x "$bin.part" && mv "$bin.part" "$bin"
+  fi
+fi
+"$bin" "$tmp/graph.jsonl" -o "$out"

@@ -1,0 +1,10 @@
+DECLARE PLUGIN "rocq-depgraph.plugin"
+
+{
+open Stdarg
+}
+
+(* DepGraph "FILE" "Lib" ... : write the graph of the loaded libraries under Lib *)
+VERNAC COMMAND EXTEND DepGraph CLASSIFIED AS QUERY STATE opaque_access
+| [ "DepGraph" string(file) ne_string_list(libs) ] -> { Depgraph.write file libs }
+END

@@ -2,7 +2,7 @@ import Lean
 import DepGraph.Extract
 open Lean System DepGraph
 
-def version : String := "0.2.1"
+def version : String := "0.3.0"
 
 def usage : String := "usage: lake exe depgraph [options] [MODULE...]
 

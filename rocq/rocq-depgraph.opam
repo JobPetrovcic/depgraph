@@ -1,0 +1,11 @@
+opam-version: "2.0"
+synopsis: "Website of the dependency graph of a Rocq library"
+maintainer: "Job Petrovčič"
+license: "MIT"
+homepage: "https://github.com/JobPetrovcic/depgraph"
+bug-reports: "https://github.com/JobPetrovcic/depgraph/issues"
+depends: [
+  "rocq-runtime" {>= "9.0"}
+  "dune" {>= "3.8"}
+]
+build: ["dune" "build" "-p" name "-j" jobs]
