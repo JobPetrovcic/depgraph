@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<meta charset="UTF-8" />
+<style>
+  /* one UI font everywhere; keep in sync with uiFont in constants.js (label widths) */
+  body,
+  svg {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #1f2328;
+  }
+
+  .optionsMenu {
+    font-size: 12px;
+  }
+
+  .nodes text {
+    font-size: 12px;
+    fill: #1f2328;
+  }
+
+  #helpToolBar,
+  #legendToolBar,
+  #colorLegendToolBar {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .toolBar > div {
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #d8dee4;
+    border-radius: 8px;
+  }
+
+  #legendToolBar a {
+    color: #0969da;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  .scoreboard text {
+    font-size: 20px;
+    fill: #1f2328;
+  }
+
+  .divider {
+    stroke: #eaeef2;
+    stroke-width: 1;
+  }
+
+  .toolIcon {
+    color: #57606a;
+  }
+
+  .toolIcon .iconBackground {
+    fill: #fff;
+    stroke: #d8dee4;
+    filter: drop-shadow(0 1px 2px rgba(31, 35, 40, 0.12));
+  }
+
+  .toolIcon:hover .iconBackground {
+    fill: #f6f8fa;
+  }
+
+  .optionsPanel {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 6px; /* = panelMargin, room for the shadow */
+    padding: 6px 10px;
+    background: #fff;
+    border: 1px solid #d8dee4;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(31, 35, 40, 0.12);
+    font-size: 12px;
+    user-select: none;
+  }
+
+  .optionsRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .optionsRow input {
+    margin: 0;
+  }
+
+  .optionsRow input + label {
+    margin-right: 10px;
+  }
+
+  .kindLegend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    max-width: 360px;
+    color: #57606a;
+  }
+
+  .kindLegend i {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 4px;
+    border-radius: 50%;
+  }
+
+  .searchPanel {
+    font-size: 12px;
+  }
+
+  .searchPanel textarea,
+  .searchPanel input {
+    box-sizing: border-box;
+    display: block;
+    font: inherit;
+    line-height: 20px;
+  }
+
+  .searchPanel input {
+    margin-top: 6px;
+  }
+
+  #dataList {
+    margin-top: 4px !important;
+    background: #fff;
+    border: 1px solid #d8dee4;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  #dataList li {
+    overflow-wrap: anywhere;
+    padding: 3px 6px !important;
+    color: #1f2328;
+    border-bottom: 1px solid #eaeef2;
+    cursor: pointer;
+  }
+
+  #dataList li:hover {
+    background: #f6f8fa;
+  }
+
+  .collapse-button {
+    margin: 2px;
+    padding: 5px 10px;
+    background: #fff;
+    color: #1f2328;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
+    font: 500 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    cursor: pointer;
+  }
+
+  .collapse-button:hover {
+    background: #f6f8fa;
+  }
+
+  #nodeCard {
+    position: fixed;
+    z-index: 10;
+    max-width: min(640px, calc(100vw - 16px));
+    min-width: 200px;
+    padding: 10px 12px;
+    background: #fff;
+    color: #1f2328;
+    border: 1px solid #d8dee4;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(31, 35, 40, 0.15);
+    overflow-y: auto;
+    font: 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  #nodeCard .card-header {
+    position: sticky;
+    top: -10px;
+    margin-top: -10px;
+    padding-top: 10px;
+    background: #fff;
+    z-index: 1;
+  }
+
+  #nodeCard .card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    word-break: break-all;
+  }
+
+  #nodeCard .kind-dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  #nodeCard .card-stats {
+    margin-top: 4px;
+    border-spacing: 0;
+  }
+
+  #nodeCard .card-stats th {
+    padding: 1px 10px 1px 0;
+    text-align: left;
+    font-weight: 400;
+    color: #656d76;
+  }
+
+  #nodeCard .card-stats td {
+    padding: 1px 0;
+  }
+
+  #nodeCard .card-source {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #eaeef2;
+  }
+
+  #nodeCard .card-muted {
+    color: #656d76;
+  }
+
+  #nodeCard .card-code {
+    margin: 0 0 6px 0;
+    padding: 8px;
+    max-height: 40vh;
+    overflow: auto;
+    background: #f6f8fa;
+    border-radius: 6px;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    white-space: pre;
+  }
+
+  #nodeCard .card-toggle {
+    display: block;
+    margin: 0 0 6px 0;
+    padding: 2px 8px;
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    font: inherit;
+    color: #1f2328;
+    cursor: pointer;
+  }
+
+  #nodeCard .card-toggle:hover {
+    background: #f3f4f6;
+  }
+
+  #nodeCard .card-link {
+    color: #0969da;
+    text-decoration: none;
+  }
+
+  #nodeCard .card-link:hover {
+    text-decoration: underline;
+  }
+</style>
+
+<body>
+  <!-- load the d3.js library -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script type="text/javascript" src="scripts/helpers.js"></script>
+  <script type="text/javascript" src="scripts/constants.js"></script>
+  <script type="text/javascript" src="scripts/librarySpecificSettings.js"></script>
+  <script type="text/javascript" src="graph_data.js"></script>
+  <script type="text/javascript" src="scripts/setUpData.js"></script>
+  <script type="text/javascript" src="scripts/setupSvg.js"></script>
+  <script type="text/javascript" src="scripts/sourceCard.js"></script>
+  <script type="text/javascript" src="scripts/moduleConnections.js"></script>
+  <script type="text/javascript" src="scripts/expansion.js"></script>
+  <script type="text/javascript" src="scripts/arrangeTree.js"></script>
+  <script type="text/javascript">
+    startingPoint = true;
+
+    const allLinks = mainGraphics.append("g").attr("class", "allLinks");
+    const allNodes = mainGraphics.append("g").attr("class", "allNodes");
+    var nodes_selection;
+
+    // link objects are created only for shown links and kept so that tracking survives collapses
+    const linkObjects = new Map();
+    function linkObject(u, v, kind = "") {
+      const key = kind + u + "->" + v;
+      let link = linkObjects.get(key);
+      if (link === undefined) {
+        link = {
+          source: nodes[u],
+          target: nodes[v],
+          offset: (gapBetweenLevels / 2) * Math.random(),
+          id: key,
+          dependency: kind == "dependency", // lifted module dependency (module view)
+        };
+        linkObjects.set(key, link);
+      }
+      return link;
+    }
+    function shownLinks() {
+      const links = [];
+      for (const u of shownNodes) {
+        if (!nodes[u].expanded) continue;
+        for (const v of visibleChildren(u)) {
+          if (nodes[v].shown) links.push(linkObject(u, v));
+        }
+      }
+      if (showModuleConnections) links.push(...moduleDependencyLinks());
+      return links;
+    }
+
+    // the hover of a node ends when the mouse leaves it; as its mouseout may be skipped, also
+    // when the mouse comes over anything else in the svg
+    var hoveredNode = null;
+    function endNodeHover() {
+      if (hoveredNode === null) return;
+      hoveredNode.hovered = null;
+      hoveredNode = null;
+      if (showModuleConnections) focusDependencyLinks(null);
+      scheduleHideCard();
+    }
+    svg.on("mouseover.hover", (event) => {
+      if (!event.target.closest(".nodes")) endNodeHover();
+    });
+
+    function update() {
+      // nodes
+      nodes_selection = mainGraphics
+        .select(".allNodes")
+        .selectAll(".nodes")
+        .data(
+          shownNodes.map((id) => nodes[id]),
+          (d) => d.id
+        )
+        .join(
+          function (enter) {
+            // create graphic containers for one nodes to which we will add a circle and text (label)
+            nodeGraphics = enter
+              .append("g")
+              .attr("class", "nodes")
+              .attr("transform", function (d) {
+                return "translate(" + d.y0 + "," + d.x0 + ")";
+              });
+            nodeGraphics
+              .transition()
+              .duration(duration)
+              .attr("class", "nodes")
+              .attr("transform", function (d) {
+                return "translate(" + d.y + "," + d.x + ")";
+              });
+            // create circles around nodes
+            nodeGraphics
+              .append("circle")
+              .attr("stroke-width", nodeStrokeWidth)
+              .attr("stroke", nodeCircleColor)
+              .attr("fill", (d) => setNodeColor(d))
+              .attr("r", nodeRadius);
+            // add names to nodes
+            namesOfEntries = nodeGraphics
+              .append("text")
+              .attr("class", (d) => "nameOfEntry" + d.id)
+              .attr("x", namesOfEntriesXOffset)
+              .attr("y", "0.31em")
+              .text((d) => d.name);
+
+            // add a white outline to text (label)
+            // NOTE: in svg this will add two <text> badges to a nodes <g>, one for text and one for outline
+            namesOfEntriesOutline = namesOfEntries
+              .clone(true)
+              .lower()
+              .attr("class", (d) => "nameOfEntryOutline" + d.id)
+              .attr("fill", "none")
+              .attr("stroke", "white")
+              .attr("stroke-width", 3);
+
+            return nodeGraphics;
+          },
+          function (update) {
+            update.selectAll("circle").attr("fill", (d) => setNodeColor(d));
+            return update
+              .transition()
+              .duration(duration)
+              .attr("transform", function (d) {
+                return "translate(" + d.y + "," + d.x + ")";
+              });
+          },
+          function (exit) {
+            // remove the nodes on exit with transition
+            return exit
+              .transition()
+              .duration(duration)
+              .attr("transform", function (d) {
+                return "translate(" + d.y + "," + d.x + ")";
+              })
+              .remove();
+          }
+        )
+        .on("click", clicked)
+        .on("mouseover", mousedover)
+        .on("mouseout", mousedout);
+
+      function mousedover(event) {
+        let node = d3.select(this).data()[0];
+        if (hoveredNode !== node) endNodeHover();
+        hoveredNode = node;
+        node.hovered = true;
+
+        // make sure that the hovered node gets displayed over the others (only once: moving the
+        // element under the mouse can make the browser skip its mouseout, see endNodeHover)
+        if (this.nextSibling) d3.select(this).raise();
+        if (showModuleConnections) focusDependencyLinks(node);
+
+        scheduleShowCard(node, this);
+      }
+      function mousedout(event) {
+        if (!this.contains(event.relatedTarget)) endNodeHover();
+      }
+      function clicked(event) {
+        //endStartingPosition()
+
+        let u = d3.select(this).data()[0].id; // select the corresponding datum
+
+        if(event.altKey && showAdvancedOptionsTickbox.property('checked')){
+          set_dependency(nodes[u])
+          foreignObjectSearchbar
+            .attr("height", divSearchbar.node().getBoundingClientRect().height)
+        }
+        else{
+          if (nodes[u].expanded) {
+          collapseAndUpdate(u);
+          } else {
+            expandAndUpdate(u);
+          }
+        }
+      }
+
+      // links
+      function diagonal(s, d, offset) {
+        if (s.y == d.y) {
+          path = `M ${s.y} ${s.x}
+          C ${(s.y + d.y) / 2 + offset} ${s.x},
+            ${(s.y + d.y) / 2 + offset} ${d.x},
+            ${d.y} ${d.x}`;
+          return path;
+        } else {
+          path = `M ${s.y} ${s.x}
+          C ${(s.y + d.y) / 2} ${s.x},
+            ${(s.y + d.y) / 2} ${d.x},
+            ${d.y} ${d.x}`;
+          return path;
+        }
+      }
+      var links = d3
+        .select(".allLinks")
+        .selectAll("path")
+        .data(
+          shownLinks(),
+          (d) => d.id
+        )
+        .join(
+          function (enter) {
+            addedLink = enter
+              .insert("path", "g")
+              .attr("fill", "none")
+              .call(setLinkAttributes)
+              .attr("class", "links")
+              .attr("opacity", 0)
+              .attr("d", function (d) {
+                return diagonal(
+                  { x: d.source.x0, y: d.source.y0 },
+                  { x: d.target.x0, y: d.target.y0 },
+                  d.offset
+                );
+              });
+            addedLink
+              .transition()
+              .duration(duration)
+              .attr("opacity", 1)
+              .attr("d", function (d) {
+                return diagonal(
+                  { x: d.source.x, y: d.source.y },
+                  { x: d.target.x, y: d.target.y },
+                  d.offset
+                );
+              });
+          },
+          function (update) {
+            return update
+              .call(setLinkAttributes) // a dependency link's width follows its count
+              .transition()
+              .duration(duration)
+              .attr("d", function (d) {
+                return diagonal(
+                  { x: d.source.x, y: d.source.y },
+                  { x: d.target.x, y: d.target.y },
+                  d.offset
+                );
+              });
+          },
+          function (exit) {
+            // remove the links on exit
+            return exit
+              .transition()
+              .duration(duration)
+              .attr("opacity", 0)
+              .attr("d", function (d) {
+                return diagonal(
+                  { x: d.source.x, y: d.source.y },
+                  { x: d.target.x, y: d.target.y },
+                  d.offset
+                );
+              })
+              .remove();
+          }
+        );
+
+      d3.selectAll(".allLinks")
+        .selectAll(".links")
+        .on("mouseover", mousedoverlink)
+        .on("mouseout", mousedoutlink)
+        .on("click", clickedlink);
+
+      function mousedoverlink(event) {
+        let link = d3.select(this).data()[0];
+        link.hovered = true;
+        setLinkAttributes(d3.select(this), d3.select(this).data()[0]);
+      }
+      function mousedoutlink(event) {
+        let link = d3.select(this).data()[0];
+        link.hovered = null;
+        setLinkAttributes(d3.select(this), d3.select(this).data()[0]);
+      }
+      function clickedlink(event) {
+        //endStartingPosition()
+
+        let link = d3.select(this).data()[0];
+
+        if (link.tracked == null) {
+          link.tracked = true;
+        } else {
+          link.tracked = null;
+        }
+
+        setLinkAttributes(d3.select(this), d3.select(this).data()[0]);
+      }
+    }
+
+    // load the roots and the root's children, then show them
+    async function start() {
+      await ensureNodes(roots);
+      await ensureAdjacency(rootid);
+      await ensureNodes(neighbours(rootid));
+      await applyInitiallyConnect();
+
+      arrangeTree();
+      saveOldPositions();
+
+      await expand(rootid);
+      saveOldPositions();
+      arrangeTree(); // correct order: the first ones created should have old position same as they are foundational
+      update();
+
+      foreignObjectCheckbox.raise();
+    }
+    queueUpdate(start);
+  </script>
+</body>

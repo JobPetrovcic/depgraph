@@ -1,0 +1,10 @@
+name = "depgraph"
+defaultTargets = ["depgraph"]
+
+[[lean_lib]]
+name = "DepGraph"
+
+[[lean_exe]]
+name = "depgraph"
+root = "Main"
+supportInterpreter = true
