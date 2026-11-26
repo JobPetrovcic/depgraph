@@ -1,25 +1,21 @@
 # depgraph
 
-Builds an interactive website of the dependency graph of a library of formal mathematics: folders,
+An interactive website of the dependency graph of a Lean 4, Agda or Rocq (Coq) library: folders,
 modules and declarations, what uses what, the most used declarations, search, and the source of a
-declaration (statement, proof on request) when you hover over it. For Lean 4, Agda and Rocq
-(Coq).
+declaration when you hover over it.
 
-It has two parts: an extractor for each language, which writes the declarations and what they use
-in a common format ([FORMAT.md](FORMAT.md)), and the program `depgraph` (Rust), which turns that
-into the website.
+Examples: [Mathlib](https://jobpetrovcic.github.io/Mathlib-Visualization-Deployment/),
+[Riemann hypothesis](https://jobpetrovcic.github.io/Riemann-Hypothesis-Visualization-Deployment/)
+([source](https://github.com/leanprover-community/riemann-hypothesis)),
+[Rocq standard library](https://jobpetrovcic.github.io/Rocq-Stdlib-Visualization-Deployment/).
 
-## Examples
+## Usage
 
-- [Mathlib](https://jobpetrovcic.github.io/Mathlib-Visualization-Deployment/) (Lean)
-- [Riemann hypothesis](https://jobpetrovcic.github.io/Riemann-Hypothesis-Visualization-Deployment/),
-  the formalization [leanprover-community/riemann-hypothesis](https://github.com/leanprover-community/riemann-hypothesis) (Lean)
-- [Rocq standard library](https://jobpetrovcic.github.io/Rocq-Stdlib-Visualization-Deployment/),
-  version 9.2.0 (Rocq)
+Build your library first. Each command writes a website (a folder); view it with
+`python3 -m http.server -d DIR` and open http://localhost:8000. The first run downloads the
+`depgraph` program for your platform.
 
-## Lean
-
-Add to your project's `lakefile.toml`:
+**Lean.** Add to `lakefile.toml`:
 
 ```toml
 [[require]]
@@ -29,98 +25,71 @@ rev = "main"
 subDir = "lean"
 ```
 
-(or `require depgraph from git "https://github.com/JobPetrovcic/depgraph" @ "main" / "lean"` in a
-`lakefile.lean`), then
+then `lake update depgraph && lake build && lake exe depgraph` (website in `.lake/depgraph`).
+`lake exe depgraph Mathlib` shows the given modules instead of your project's. Options: `-o DIR`,
+`-j N` threads, `--name`, `--source URL`, `--no-source`, `--export FILE`.
+
+**Rocq** (9.x):
 
 ```
-lake update depgraph
-lake build
-lake exe depgraph
-python3 -m http.server -d .lake/depgraph      # and open http://localhost:8000
+opam pin add rocq-depgraph "git+https://github.com/JobPetrovcic/depgraph#main" --subpath rocq
+rocq-depgraph            # website in depgraph-site; -o DIR to change
 ```
 
-Without arguments it shows the modules your project has built; `lake exe depgraph Mathlib` shows
-Mathlib instead (any module names: each stands for itself and the modules below it). The first run
-downloads the `depgraph` program for your platform. Options:
+It reads the `-R`/`-Q` flags of `_CoqProject`, or give them: `rocq-depgraph -Q theories MyLib`
+(for dune, the `.vo` files are taken from `_build/default`).
+
+**Agda** (2.8): `agda-depgraph` is Agda with a `--depgraph` backend. Install it with
+`cd agda && cabal install` (needs GHC 8.8–9.12 and `libgmp-dev`; about 20 minutes), then, next to
+your `.agda-lib`:
 
 ```
-  -o, --out DIR    output directory (default: .lake/depgraph)
-  -j, --jobs N     threads (default: all cores)
-  --name NAME      name of the library (default: the first module or the directory)
-  --source URL     source of the modules on GitHub (default: found with git)
-  --no-source      do not link the source
-  --export FILE    only write the declarations to FILE, in the common format
+agda-depgraph --depgraph src/Everything.agda     # a file importing everything
+depgraph _depgraph -o site
 ```
 
-## Agda
+Large libraries need a large heap, e.g. `+RTS -A128M -H4G -RTS`.
 
-See [agda/README.md](agda/README.md).
-
-## Rocq (Coq)
-
-See [rocq/README.md](rocq/README.md).
-
-## Other languages
-
-Write the declarations in the [common format](FORMAT.md) and run `depgraph FILE -o DIR`. The
-program is attached to every [release](https://github.com/JobPetrovcic/depgraph/releases), or build
-it with `cargo install --git https://github.com/JobPetrovcic/depgraph`.
+**Other languages:** write the declarations in the [common format](FORMAT.md) and run
+`depgraph FILE -o DIR`. The program is attached to every
+[release](https://github.com/JobPetrovcic/depgraph/releases).
 
 ## The website
 
-The output is a static website (a folder of files): put it on any web server. The page loads only
-the parts of the graph you open, so it also works for very large libraries. It needs a web server,
-not `file://`.
+A static folder: put it on any web server (not `file://`). It loads only the parts of the graph you
+open, so it works for very large libraries. The source shown on hover is fetched from GitHub at the
+commit you ran on, so push that commit first.
 
-The source shown on hover is fetched from GitHub, at the commit you ran the tool on, so that commit
-must be pushed.
-
-### Publishing on GitHub Pages
-
-For a Lean project, `.github/workflows/depgraph.yml` (and under Settings → Pages, set the source to
-"GitHub Actions"):
+To publish a Lean project on GitHub Pages, add `.github/workflows/depgraph.yml` and set
+Settings → Pages → Source to "GitHub Actions":
 
 ```yaml
 name: Dependency graph
-on:
-  push:
-    branches: [main]
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+on: { push: { branches: [main] } }
+permissions: { contents: read, pages: write, id-token: write }
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: leanprover/lean-action@v1   # installs Lean, gets cached builds (`lake exe cache get`) if the project uses Mathlib, builds the rest
+      - uses: leanprover/lean-action@v1
       - run: lake exe depgraph -o _site
       - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
+        with: { path: _site }
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
+    environment: { name: github-pages }
     steps:
       - uses: actions/deploy-pages@v4
 ```
 
-A free GitHub runner has about 14 GB of disk, enough for projects of Mathlib's size; a project
-whose compiled files are larger needs a bigger runner or to run the tool locally.
-
-## Scale
-
-On 16 threads, Mathlib (600k declarations) takes 11 s; a Lean project with 1.4M declarations takes
-55 s and about 5 GB of memory (plus the compiled files, which are mapped from disk). The website is
-about 200–230 bytes per declaration: 120 MB for Mathlib.
-
 ## The graph
 
-An edge A → B means that A uses B: in its statement, its proof or body, or (Lean) as an inductive
-type's constructor. Only declarations of the shown modules are nodes. A declaration's degree counts
-its edges to other shown declarations. Auxiliary declarations (Lean: `f._proof_1`, `f.eq_1`, ...)
-are kept, and show the source of the declaration they belong to. Lean modules that declare `main`
-and are imported by no other module (roots of executables, e.g. build scripts) are left out.
+An edge A → B means that A uses B in its statement or its proof/body, as the checked terms have it
+(so including what tactics and type classes put there). Only declarations of the shown modules are
+nodes. Auxiliary declarations (Lean `f._proof_1`, Rocq `f_subproof`) are kept; Agda with-functions
+and lambdas are merged into the declaration they belong to. Declarations created by Rocq functor
+applications have no source lines.
+
+Mathlib (600k declarations) takes 11 s on 16 threads; 1.4M declarations take 55 s and about 5 GB.
