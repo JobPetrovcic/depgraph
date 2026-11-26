@@ -1,4 +1,2 @@
-const rootName = 'agda-unimath'
-
 var InitiallyRemoveNodes = []
-var InitiallyConnect = [['agda-unimath', 'Agda']] // Add additional connections
+var InitiallyConnect = [] // pairs of names: [user, used] edges to add

@@ -28,7 +28,7 @@ fn blob_url(root: &Path) -> Option<String> {
     let commit = git(root, &["rev-parse", "HEAD"])?;
     let url = git(root, &["remote", "get-url", "origin"])?;
     let url = url.strip_suffix(".git").unwrap_or(&url);
-    let Some(repo) = ["https://github.com/", "git@github.com:"].iter().find_map(|p| url.strip_prefix(p)) else {
+    let Some(repo) = ["https://github.com/", "git@github.com:", "ssh://git@github.com/"].iter().find_map(|p| url.strip_prefix(p)) else {
         eprintln!("note: {url} is not on GitHub, so the page shows no source of {}", root.display());
         return None;
     };
@@ -55,15 +55,29 @@ fn repo_root(dir: &Path, cache: &mut HashMap<PathBuf, Option<PathBuf>>) -> Optio
 pub fn resolve(g: &Graph, input: &Input, base: Option<String>) -> Files {
     let mut files = Files::none(g.tree_count);
     let module_file = |v: usize| g.module_of_node.get(&v).and_then(|m| input.modules[m].clone());
-    if let Some(base) = base {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let mut roots = HashMap::new();
+    if let Some(mut base) = base {
+        // files relative to the base: local files relative to their git checkout
+        if !base.ends_with('/') {
+            base.push('/');
+        }
         for v in 0..g.tree_count {
-            files.file[v] = module_file(v);
+            files.file[v] = module_file(v).map(|f| {
+                let local = Path::new(&f);
+                let in_repo = (local.is_absolute() || local.exists())
+                    .then(|| cwd.join(local).canonicalize().ok())
+                    .flatten()
+                    .and_then(|p| {
+                        let root = p.parent().and_then(|d| repo_root(d, &mut roots))?;
+                        p.strip_prefix(&root).ok().map(url_path)
+                    });
+                in_repo.unwrap_or_else(|| url_path(local))
+            });
         }
         files.base = Some(base);
         return files;
     }
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let mut roots = HashMap::new();
     let mut located: Vec<(usize, PathBuf, PathBuf)> = Vec::new(); // node, repo root, file in it
     for v in 0..g.tree_count {
         let Some(f) = module_file(v) else { continue };
@@ -85,7 +99,7 @@ pub fn resolve(g: &Graph, input: &Input, base: Option<String>) -> Files {
     let main = count.iter().filter(|(r, _)| urls[*r].is_some()).max_by_key(|(r, c)| (**c, std::cmp::Reverse(*r))).map(|(r, _)| *r);
     files.base = main.and_then(|r| urls[r].clone());
     for (v, r, rel) in &located {
-        let rel = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+        let rel = url_path(rel);
         files.file[*v] = match &urls[r] {
             Some(_) if Some(r) == main => Some(rel),
             Some(u) => Some(format!("{u}{rel}")),
@@ -93,4 +107,22 @@ pub fn resolve(g: &Graph, input: &Input, base: Option<String>) -> Files {
         };
     }
     files
+}
+
+/// A relative path as a URL path: its components joined by `/`, percent-encoded.
+fn url_path(p: &Path) -> String {
+    p.components()
+        .map(|c| {
+            let mut s = String::new();
+            for b in c.as_os_str().to_string_lossy().bytes() {
+                if b.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@".contains(&b) {
+                    s.push(b as char);
+                } else {
+                    s.push_str(&format!("%{b:02X}"));
+                }
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }

@@ -18,8 +18,11 @@ object per line, of three kinds.
   the header's `source`. A module only named by declarations needs no line.
 - **Declaration**: its name, which must be unique (later ones of the same name are dropped); its
   module; `kind`, e.g. `theorem`, `function`, `data`, `record`, `constructor`, `axiom` (any word);
-  optionally the lines `line`..`end` of its source in the module's file; and the names it uses.
+  optionally the lines `line`..`end` of its source in the module's file; the names it uses; and
+  `"aux": true` if it was generated rather than written (e.g. Lean `f._proof_1`, Rocq `T_ind`):
+  `depgraph --no-aux` leaves those out, and what they use counts as used by their users.
   Names of no declaration of the input (e.g. of other libraries) are ignored, so an extractor
   may write all of them or only those of the library.
 
-Order does not matter, except that the declarations of a module are shown in input order.
+Order does not matter, except that the declarations of a module are shown in input order and
+that of two declarations of the same name the first is kept. Absent and `null` fields are the same.

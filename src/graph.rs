@@ -4,7 +4,7 @@
 
 use crate::Line;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct Decl {
     pub name: String,
@@ -12,6 +12,7 @@ pub struct Decl {
     pub kind: String,
     pub range: Option<(u32, u32)>,
     pub uses: Vec<String>,
+    pub aux: bool,
 }
 
 pub struct Input {
@@ -37,7 +38,7 @@ impl Input {
                 input.modules.entry(module.clone()).or_insert(None);
                 let range = l.line.map(|a| (a, l.end.unwrap_or(a).max(a)));
                 let kind = l.kind.unwrap_or_else(|| "declaration".to_string());
-                input.decls.push(Decl { name, module, kind, range, uses: l.uses });
+                input.decls.push(Decl { name, module, kind, range, uses: l.uses.unwrap_or_default(), aux: l.aux.unwrap_or(false) });
             } else if let Some(m) = l.module {
                 let f = input.modules.entry(m).or_insert(None);
                 if l.file.is_some() {
@@ -48,6 +49,140 @@ impl Input {
             }
         }
         Ok(input)
+    }
+
+    /// Drops every declaration whose name an earlier one (in input order) has.
+    pub fn dedup(&mut self) {
+        let mut seen: HashSet<String> = HashSet::with_capacity(self.decls.len());
+        self.decls.retain(|d| seen.insert(d.name.clone()));
+    }
+
+    /// Removes the auxiliary declarations (after [`Input::dedup`]); a declaration that used one
+    /// uses what it used instead, through chains and cycles of auxiliary declarations.
+    /// Returns how many were removed.
+    pub fn drop_aux(&mut self) -> usize {
+        let decls = &self.decls;
+        let aux: Vec<usize> = (0..decls.len()).filter(|&i| decls[i].aux).collect();
+        let aux_of: HashMap<&str, u32> = aux.iter().enumerate().map(|(k, &i)| (decls[i].name.as_str(), k as u32)).collect();
+        // the other names used, interned
+        let mut other: Vec<&str> = Vec::new();
+        let mut other_id: HashMap<&str, u32> = HashMap::new();
+        let mut succ: Vec<Vec<u32>> = Vec::with_capacity(aux.len()); // aux -> aux it uses
+        let mut direct: Vec<Vec<u32>> = Vec::with_capacity(aux.len()); // aux -> other names it uses
+        for &i in &aux {
+            let (mut s, mut d) = (Vec::new(), Vec::new());
+            for u in &decls[i].uses {
+                match aux_of.get(u.as_str()) {
+                    Some(&k) => s.push(k),
+                    None => d.push(*other_id.entry(u.as_str()).or_insert_with(|| {
+                        other.push(u.as_str());
+                        other.len() as u32 - 1
+                    })),
+                }
+            }
+            succ.push(s);
+            direct.push(d);
+        }
+        // strongly connected components (Tarjan, without recursion); they come out with the
+        // components they use first, so each one's expansion can be computed right away
+        let n = aux.len();
+        const NONE: u32 = u32::MAX;
+        let (mut index, mut low, mut comp) = (vec![NONE; n], vec![0u32; n], vec![NONE; n]);
+        let (mut stack, mut on_stack) = (Vec::new(), vec![false; n]);
+        let mut expansion: Vec<Vec<u32>> = Vec::new(); // component -> other names it stands for
+        let mut next = 0u32;
+        for root in 0..n {
+            if index[root] != NONE {
+                continue;
+            }
+            let mut call: Vec<(usize, usize)> = vec![(root, 0)]; // node, next successor to visit
+            index[root] = next;
+            low[root] = next;
+            next += 1;
+            stack.push(root);
+            on_stack[root] = true;
+            while let Some(&mut (v, ref mut e)) = call.last_mut() {
+                if *e < succ[v].len() {
+                    let w = succ[v][*e] as usize;
+                    *e += 1;
+                    if index[w] == NONE {
+                        index[w] = next;
+                        low[w] = next;
+                        next += 1;
+                        stack.push(w);
+                        on_stack[w] = true;
+                        call.push((w, 0));
+                    } else if on_stack[w] {
+                        low[v] = low[v].min(index[w]);
+                    }
+                    continue;
+                }
+                call.pop();
+                if let Some(&(p, _)) = call.last() {
+                    low[p] = low[p].min(low[v]);
+                }
+                if low[v] == index[v] {
+                    let c = expansion.len() as u32;
+                    let mut members = Vec::new();
+                    loop {
+                        let w = stack.pop().unwrap();
+                        on_stack[w] = false;
+                        comp[w] = c;
+                        members.push(w);
+                        if w == v {
+                            break;
+                        }
+                    }
+                    let mut x = Vec::new();
+                    for &w in &members {
+                        x.extend_from_slice(&direct[w]);
+                        for &s in &succ[w] {
+                            let cs = comp[s as usize];
+                            if cs != c {
+                                x.extend_from_slice(&expansion[cs as usize]);
+                            }
+                        }
+                    }
+                    x.sort_unstable();
+                    x.dedup();
+                    expansion.push(x);
+                }
+            }
+        }
+        let new_uses: Vec<Option<Vec<String>>> = decls
+            .par_iter()
+            .map(|d| {
+                if d.aux || !d.uses.iter().any(|u| aux_of.contains_key(u.as_str())) {
+                    return None;
+                }
+                let mut uses: Vec<String> = Vec::with_capacity(d.uses.len());
+                for u in &d.uses {
+                    match aux_of.get(u.as_str()) {
+                        Some(&k) => uses.extend(
+                            expansion[comp[k as usize] as usize].iter().map(|&o| other[o as usize]).filter(|v| *v != d.name).map(str::to_string),
+                        ),
+                        None => uses.push(u.clone()),
+                    }
+                }
+                uses.sort_unstable();
+                uses.dedup();
+                Some(uses)
+            })
+            .collect();
+        let removed = aux.len();
+        let decls = std::mem::take(&mut self.decls);
+        self.decls = decls
+            .into_iter()
+            .zip(new_uses)
+            .filter(|(d, _)| !d.aux)
+            .map(|(mut d, u)| {
+                if let Some(u) = u {
+                    d.uses = u;
+                }
+                d
+            })
+            .collect();
+        removed
     }
 }
 
@@ -257,7 +392,11 @@ pub fn build(input: &Input, lib_name: &str, log: &dyn Fn(String)) -> Graph {
         names: (0..t).map(|v| names[old_of[v]].clone()).chain(decls.iter().map(|(d, _)| d.name.clone())).collect(),
         labels: (0..t)
             .map(|v| labels[old_of[v]].clone())
-            .chain(decls.iter().map(|(d, _)| format!(":{}", d.kind)))
+            .chain(decls.iter().map(|(d, _)| match d.kind.as_str() {
+                // the page takes these labels for folders and modules
+                k @ ("library" | "module" | "namespace") => format!(":{k}-declaration"),
+                k => format!(":{k}"),
+            }))
             .collect(),
         parent: (0..t)
             .map(|v| if v == 0 { -1 } else { new_id[parent[old_of[v]]] as i64 })

@@ -21,7 +21,9 @@ Writes the website of a library's dependency graph. INPUT: files in the depgraph
   --name NAME      name of the library (default: from the input, or the first module)
   --source URL     base URL of the source files on GitHub, e.g.
                    https://github.com/OWNER/REPO/blob/COMMIT/ (default: found with git)
-  --no-source      do not link the source";
+  --no-source      do not link the source
+  --no-aux         leave out auxiliary declarations (marked \"aux\"); what they use counts
+                   as used by the declarations that use them";
 
 /// One line of the input.
 #[derive(Deserialize, Default)]
@@ -36,7 +38,8 @@ pub struct Line {
     pub kind: Option<String>,
     pub line: Option<u32>,
     pub end: Option<u32>,
-    pub uses: Vec<String>,
+    pub uses: Option<Vec<String>>,
+    pub aux: Option<bool>,
 }
 
 fn jsonl_below(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -64,6 +67,7 @@ fn main() {
     let mut name = None;
     let mut source_arg = None;
     let mut no_source = false;
+    let mut no_aux = false;
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].clone();
@@ -85,6 +89,7 @@ fn main() {
             "--name" => name = Some(value()),
             "--source" => source_arg = Some(value()),
             "--no-source" => no_source = true,
+            "--no-aux" => no_aux = true,
             a if a.starts_with('-') && a != "-" => fail(format!("unknown option {a}\n\n{USAGE}")),
             a => inputs.push(a.to_string()),
         }
@@ -127,7 +132,7 @@ fn main() {
     let lines: Vec<(usize, usize, &str)> = texts
         .iter()
         .enumerate()
-        .flat_map(|(f, (_, t))| t.lines().enumerate().map(move |(k, l)| (f, k, l)))
+        .flat_map(|(f, (_, t))| t.strip_prefix('\u{feff}').unwrap_or(t).lines().enumerate().map(move |(k, l)| (f, k, l)))
         .filter(|(_, _, l)| !l.trim().is_empty())
         .collect();
     let parsed: Vec<Line> = lines
@@ -140,7 +145,12 @@ fn main() {
     drop(texts);
     log(format!("read {} lines", parsed.len()));
 
-    let input = graph::Input::from_lines(parsed).unwrap_or_else(|e| fail(e));
+    let mut input = graph::Input::from_lines(parsed).unwrap_or_else(|e| fail(e));
+    input.dedup();
+    if no_aux {
+        let n = input.drop_aux();
+        log(format!("left out {n} auxiliary declarations"));
+    }
     let lib_name = name
         .or(input.library.clone())
         .or_else(|| input.modules.keys().min().map(|m| m.split('.').next().unwrap().to_string()))

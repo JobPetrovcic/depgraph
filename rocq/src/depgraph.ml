@@ -63,6 +63,8 @@ let source_file vo =
     | exception Not_found -> v in
   v
 
+let aux_name = Str.regexp "\\(.*\\)\\(_subproof[0-9]*\\|_obligation_[0-9]+\\)$"
+
 let write ~opaque_access file prefixes =
   let env = Global.env () in
   let prefixes = List.map (fun p -> Libnames.dirpath_of_string p) prefixes in
@@ -108,14 +110,26 @@ let write ~opaque_access file prefixes =
         (match vo with Some f -> ",\"file\":" ^ json_string (source_file f) | None -> "");
       let lines = List.map (fun d ->
           let name = name_of d.gr in
-          let range = match Hashtbl.find_opt globs name, src, line_of with
-            | Some (gkind, off), Some src, Some line_of ->
-              let last = match d.gr with
-                | GlobRef.ConstRef _ when gkind = "proj" -> Ranges.item_end src off ';'
-                | GlobRef.ConstRef _ ->
-                  Ranges.decl_end src off (d.kind = "theorem" || d.kind = "definition")
-                | GlobRef.ConstructRef _ -> Ranges.item_end src off '|'
-                | _ -> fst (Ranges.sentence_end src off) in
+          (* where it is: its own entry in the .glob file; for record constructors (which
+             have none) the record's; for subproofs and obligations their declaration's *)
+          let located = match Hashtbl.find_opt globs name, d.gr with
+            | Some (gkind, off), GlobRef.ConstRef _ when gkind = "proj" -> Some (`Field, off)
+            | Some (_, off), GlobRef.ConstRef _ ->
+              Some (`Const (d.kind = "theorem" || d.kind = "definition"), off)
+            | Some (_, off), GlobRef.ConstructRef _ -> Some (`Constructor, off)
+            | Some (_, off), _ -> Some (`Sentence, off)
+            | None, GlobRef.ConstructRef (ind, _) ->
+              Option.map (fun (_, off) -> (`Sentence, off)) (Hashtbl.find_opt globs (name_of (GlobRef.IndRef ind)))
+            | None, _ when Str.string_match aux_name name 0 ->
+              Option.map (fun (_, off) -> (`Const true, off)) (Hashtbl.find_opt globs (Str.matched_group 1 name))
+            | None, _ -> None in
+          let range = match located, src, line_of with
+            | Some (how, off), Some src, Some line_of ->
+              let last = match how with
+                | `Field -> Ranges.item_end src off ';'
+                | `Const proof_mode -> Ranges.decl_end src off proof_mode
+                | `Constructor -> Ranges.item_end src off '|'
+                | `Sentence -> fst (Ranges.sentence_end src off) in
               (off, Printf.sprintf ",\"line\":%d,\"end\":%d" (line_of off) (line_of last))
             | _ -> (max_int, "") in
           let kind = match Hashtbl.find_opt globs name with
@@ -123,8 +137,11 @@ let write ~opaque_access file prefixes =
             | Some ("class", _) -> "class" | Some ("scheme", _) -> "scheme"
             | _ -> d.kind in
           let deps = GlobRef.Set.elements (GlobRef.Set.remove d.gr d.deps) in
-          ((fst range, kind = "scheme"), Printf.sprintf "{\"decl\":%s,\"module\":%s,\"kind\":%s%s,\"uses\":[%s]}\n"
+          (* generated: induction schemes, abstracted subproofs, Program obligations *)
+          let aux = kind = "scheme" || Str.string_match aux_name name 0 in
+          ((fst range, kind = "scheme"), Printf.sprintf "{\"decl\":%s,\"module\":%s,\"kind\":%s%s%s,\"uses\":[%s]}\n"
              (json_string name) (json_string modname) (json_string kind) (snd range)
+             (if aux then ",\"aux\":true" else "")
              (String.concat "," (List.map (fun g -> json_string (name_of g)) deps))))
           (List.rev (Hashtbl.find_all decls dp)) in
       (* in the order of the source; schemes after their inductive type *)

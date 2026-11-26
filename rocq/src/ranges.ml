@@ -65,7 +65,8 @@ let sentence_end src i =
       else if depth > 0 then go (i + 1) depth false assign
       else if c = '"' then go (i + 1) 0 true assign
       else if c = ':' && next = '=' then go (i + 2) 0 false true
-      else if c = '.' && is_space next && (i = 0 || src.[i - 1] <> '.') then (i, assign)
+      else if c = '.' && is_space next
+              && (i < 2 || src.[i - 1] <> '.' || src.[i - 2] = '.') then (i, assign)   (* not "..", but "..." *)
       else go (i + 1) 0 false assign
   in
   go i 0 false false
@@ -120,19 +121,47 @@ let item_end src off sep =
 
 let terminators = ["Qed"; "Defined"; "Admitted"; "Save"; "Abort"]
 
+(* commands that cannot be inside a proof: a proof scan that meets one stops *)
+let commands =
+  [ "Lemma"; "Theorem"; "Definition"; "Fixpoint"; "CoFixpoint"; "Inductive"; "CoInductive"
+  ; "Record"; "Structure"; "Class"; "Instance"; "Example"; "Corollary"; "Proposition"; "Fact"
+  ; "Remark"; "Property"; "Section"; "End"; "Module"; "Require"; "Import"; "Export"; "Axiom"
+  ; "Parameter"; "Variable"; "Variables"; "Hypothesis"; "Context"; "Program"; "Let"
+  ; "Notation"; "Goal"; "Next"; "Equations"; "Scheme"; "Arguments"; "From" ]
+
+(* the first word of the sentence after offset [i], also skipping bullets, braces, goal
+   selectors ("2:") and attributes ("#[...]") *)
+let rec proof_word src i =
+  let n = String.length src in
+  let w, j = next_word src i in
+  if w <> "" || j >= n then (w, j)
+  else match src.[j] with
+    | '{' | '}' | '-' | '+' | '*' | ':' | '0'..'9' -> proof_word src j
+    | '#' when j + 1 < n && src.[j + 1] = '[' ->
+      (match String.index_from_opt src j ']' with Some k -> proof_word src k | None -> (w, j))
+    | _ -> (w, j)
+
 (* The offset where the declaration whose name is at [off] ends: its sentence,
    and the proof after it, when there is one. [proof_mode] says whether the
-   declaration can be stated without ":=" and proved by tactics. *)
+   declaration can be proved by tactics. *)
 let decl_end src off proof_mode =
   let e, assign = sentence_end src off in
-  let w, _ = next_word src e in
-  if w = "Proof" || proof_mode && not assign then
+  let w, _ = proof_word src e in
+  let lower = w <> "" && Char.lowercase_ascii w.[0] = w.[0] in
+  if w = "Proof" || proof_mode && (not assign || lower) then
     let rec find e =
       if e >= String.length src - 1 then None
       else
-        let w, j = next_word src e in
+        let w, j = proof_word src e in
         let e' = fst (sentence_end src j) in
-        if List.mem w terminators then Some e' else if e' <= e then None else find e'
+        if List.mem w terminators then Some e'
+        else if w = "Proof" then
+          (* "Proof term." is a whole proof; "Proof using ..." and "Proof with ..." start one *)
+          let rest = String.trim (String.sub src (j + 5) (max 0 (e' - j - 5))) in
+          let first = match String.index_opt rest ' ' with Some k -> String.sub rest 0 k | None -> rest in
+          if rest = "" || first = "using" || first = "with" then find e' else Some e'
+        else if List.mem w commands || e' <= e then None
+        else find e'
     in
     (match find e with Some e' -> e' | None -> e)
   else e

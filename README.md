@@ -27,13 +27,13 @@ subDir = "lean"
 
 then `lake update depgraph && lake build && lake exe depgraph` (website in `.lake/depgraph`).
 `lake exe depgraph Mathlib` shows the given modules instead of your project's. Options: `-o DIR`,
-`-j N` threads, `--name`, `--source URL`, `--no-source`, `--export FILE`.
+`-j N` threads, `--no-aux`, `--name`, `--source URL`, `--no-source`, `--export FILE`.
 
 **Rocq** (9.x):
 
 ```
 opam pin add rocq-depgraph "git+https://github.com/JobPetrovcic/depgraph#main" --subpath rocq
-rocq-depgraph            # website in depgraph-site; -o DIR to change
+rocq-depgraph            # website in depgraph-site; -o DIR to change; --no-aux
 ```
 
 It reads the `-R`/`-Q` flags of `_CoqProject`, or give them: `rocq-depgraph -Q theories MyLib`
@@ -88,8 +88,10 @@ jobs:
 
 An edge A → B means that A uses B in its statement or its proof/body, as the checked terms have it
 (so including what tactics and type classes put there). Only declarations of the shown modules are
-nodes. Auxiliary declarations (Lean `f._proof_1`, Rocq `f_subproof`) are kept; Agda with-functions
-and lambdas are merged into the declaration they belong to. Declarations created by Rocq functor
+nodes. Generated declarations (Lean `f._proof_1`, `f.eq_1`, `T.rec`; Rocq `T_ind`, `f_subproof`)
+are kept; `--no-aux` leaves them out (Mathlib: 600k → 346k declarations), and what they use then
+counts as used by the declarations that use them. Agda with-functions and lambdas are always merged
+into the declaration they belong to. Declarations created by Rocq functor
 applications have no source lines.
 
 Mathlib (600k declarations) takes 11 s on 16 threads; 1.4M declarations take 55 s and about 5 GB.
