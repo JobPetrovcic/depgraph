@@ -9,6 +9,14 @@ It has two parts: an extractor for each language, which writes the declarations 
 in a common format ([FORMAT.md](FORMAT.md)), and the program `depgraph` (Rust), which turns that
 into the website.
 
+## Examples
+
+- [Mathlib](https://jobpetrovcic.github.io/Mathlib-Visualization-Deployment/) (Lean)
+- [Riemann hypothesis](https://jobpetrovcic.github.io/Riemann-Hypothesis-Visualization-Deployment/),
+  the formalization [leanprover-community/riemann-hypothesis](https://github.com/leanprover-community/riemann-hypothesis) (Lean)
+- [Rocq standard library](https://jobpetrovcic.github.io/Rocq-Stdlib-Visualization-Deployment/),
+  version 9.2.0 (Rocq)
+
 ## Lean
 
 Add to your project's `lakefile.toml`:
